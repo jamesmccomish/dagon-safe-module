@@ -2,11 +2,12 @@
 pragma solidity ^0.8.23;
 
 // Gnosis Safe imports
-import { Safe, Enum } from "@safe/Safe.sol";
-import { CompatibilityFallbackHandler } from "@safe/handler/CompatibilityFallbackHandler.sol";
-import { MultiSend } from "@safe/libraries/MultiSend.sol";
-import { SafeProxyFactory } from "@safe/proxies/SafeProxyFactory.sol";
-import { SignMessageLib } from "@safe/libraries/SignMessageLib.sol";
+import { Safe, Enum } from "../../lib/safe-contracts/contracts/Safe.sol";
+import { CompatibilityFallbackHandler } from
+    "../../lib/safe-contracts/contracts/handler/CompatibilityFallbackHandler.sol";
+import { MultiSend } from "../../lib/safe-contracts/contracts/libraries/MultiSend.sol";
+import { SafeProxyFactory } from "../../lib/safe-contracts/contracts/proxies/SafeProxyFactory.sol";
+import { SignMessageLib } from "../../lib/safe-contracts/contracts/libraries/SignMessageLib.sol";
 
 // General setup helper for all safe contracts
 abstract contract SafeTestConfig {
@@ -16,9 +17,6 @@ abstract contract SafeTestConfig {
     CompatibilityFallbackHandler internal handler;
     SafeProxyFactory internal safeProxyFactory;
     SignMessageLib internal signMessageLib;
-
-    // Used to store the address of the safe created in tests
-    address internal safeAddress;
 
     /// -----------------------------------------------------------------------
     /// Setup
