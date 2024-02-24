@@ -12,3 +12,6 @@
 [submodule "lib/dagon"]
 	path = lib/dagon
 	url = https://github.com/Moloch-Mystics/dagon
+[submodule "lib/safe-contracts"]
+	path = lib/safe-contracts
+	url = https://github.com/safe-global/safe-contracts
