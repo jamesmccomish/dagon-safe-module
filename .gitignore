@@ -16,3 +16,6 @@ yarn.lock
 !broadcast
 broadcast/*
 broadcast/*/31337/
+
+# misc
+.vscode

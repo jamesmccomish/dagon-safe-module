@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity >=0.8.0 <0.8.20;
+pragma solidity ^0.8.23;
 
 import { MockERC20 } from "@solbase-test/utils/mocks/MockERC20.sol";
 import { MockERC721 } from "@solbase-test/utils/mocks/MockERC721.sol";

@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.13;
+pragma solidity ^0.8.23;
 
 // Gnosis Safe imports
-import {Safe, Enum} from "@safe/Safe.sol";
-import {CompatibilityFallbackHandler} from "@safe/handler/CompatibilityFallbackHandler.sol";
-import {MultiSend} from "@safe/libraries/MultiSend.sol";
-import {SafeProxyFactory} from "@safe/proxies/SafeProxyFactory.sol";
-import {SignMessageLib} from "@safe/libraries/SignMessageLib.sol";
+import { Safe, Enum } from "@safe/Safe.sol";
+import { CompatibilityFallbackHandler } from "@safe/handler/CompatibilityFallbackHandler.sol";
+import { MultiSend } from "@safe/libraries/MultiSend.sol";
+import { SafeProxyFactory } from "@safe/proxies/SafeProxyFactory.sol";
+import { SignMessageLib } from "@safe/libraries/SignMessageLib.sol";
 
 // General setup helper for all safe contracts
 abstract contract SafeTestConfig {
@@ -36,7 +36,12 @@ abstract contract SafeTestConfig {
     /// Utils
     /// -----------------------------------------------------------------------
 
-    function buildSafeMultisend(Enum.Operation operation, address to, uint256 value, bytes memory data)
+    function buildSafeMultisend(
+        Enum.Operation operation,
+        address to,
+        uint256 value,
+        bytes memory data
+    )
         internal
         pure
         returns (bytes memory)
