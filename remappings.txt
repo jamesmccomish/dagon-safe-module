@@ -1,5 +1,11 @@
 ds-test/=lib/forge-std/lib/ds-test/src/
 forge-std/=lib/forge-std/src/
 prb-test/=lib/prb-test/src/
-solbase/=lib/solbase/src/
-solbase-test/=lib/solbase/test/
+@solbase-test/=lib/solbase/test/
+
+@solbase=lib/solbase/src/
+@safe=lib/safe-contracts/contracts/
+
+@utils/=src/utils/
+@interfaces/=src/interfaces/
+@libraries/=src/libraries/
