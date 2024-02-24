@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.0 <0.8.20;
 
-import { MockERC20 } from "solbase-test/utils/mocks/MockERC20.sol";
-import { MockERC721 } from "solbase-test/utils/mocks/MockERC721.sol";
-import { MockERC1155 } from "solbase-test/utils/mocks/MockERC1155.sol";
+import { MockERC20 } from "@solbase-test/utils/mocks/MockERC20.sol";
+import { MockERC721 } from "@solbase-test/utils/mocks/MockERC721.sol";
+import { MockERC1155 } from "@solbase-test/utils/mocks/MockERC1155.sol";
 
-// Create tokens for tests 
-abstract contract TokenTestConfig { 
+// Create tokens for tests
+abstract contract TokenTestConfig {
     MockERC20 public immutable mockErc20;
     MockERC721 public immutable mockErc721;
     MockERC1155 public immutable mockErc1155;
