@@ -9,3 +9,6 @@
 	branch = 'e12d00b'
 	path = lib/solbase
 	url = https://github.com/Sol-Dao/solbase
+[submodule "lib/dagon"]
+	path = lib/dagon
+	url = https://github.com/Moloch-Mystics/dagon
