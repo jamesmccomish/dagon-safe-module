@@ -6,9 +6,11 @@ import { Dagon, IAuth } from "../lib/dagon/src/Dagon.sol";
 contract DagonContributionModule {
     address public DAGON_SINGLETON = address(0x1);
 
-    constructor() {
+    constructor() { }
+
+    function setDagonForSafe() public {
         // init this contract with a Dagon token
-        Dagon.Ownership[] memory _owners = new Dagon.Ownership[](0);
+        Dagon.Ownership[] memory owners = new Dagon.Ownership[](0);
 
         Dagon.Settings memory setting;
         setting.token = address(this);
@@ -20,5 +22,7 @@ contract DagonContributionModule {
         meta.symbol = "";
         meta.tokenURI = "";
         meta.authority = IAuth(address(0));
+
+        Dagon(DAGON_SINGLETON).install(owners, setting, meta);
     }
 }
