@@ -12,7 +12,7 @@ import "../lib/safe-tools/src/SafeTestTools.sol";
 import { Dagon, IAuth } from "../lib/dagon/src/Dagon.sol";
 
 // Contract imports
-import { DagonContributionModule } from "../src/DagonContributionModule.sol";
+import { DagonTokenFallbackHandler } from "../src/DagonTokenFallbackHandler.sol";
 
 contract DagonTokenModuleTest is BasicTestConfig, SafeTestTools {
     using stdStorage for StdStorage;
@@ -27,23 +27,21 @@ contract DagonTokenModuleTest is BasicTestConfig, SafeTestTools {
     Dagon public dagon;
     address public dagonAddress;
 
-    DagonContributionModule public dagonContributionModule;
-    address public dagonContributionModuleAddress;
+    DagonTokenFallbackHandler public dagonTokenFallbackHandler;
+    address public dagonTokenFallbackHandlerAddress;
+
+    // Test settings for dagon
+    Dagon.Settings setting;
+    Dagon.Metadata meta;
+
+    // Config for safe
+    uint256 public constant THRESHOLD = 1;
+    uint256 public constant STARTING_BALANCE = 1 ether;
 
     function setUp() public {
-        setupSafe();
         setupDagon();
-        setupDagonContributionModule();
-    }
-
-    function setupSafe() public {
-        uint256[] memory pks = new uint256[](2);
-        pks[0] = alicePk;
-        pks[1] = bobPk;
-
-        safeInstance = _setupSafe(pks, 1);
-        safe = safeInstance.safe;
-        safeAddress = address(safe);
+        setupDagonTokenFallbackHandler();
+        setupSafe();
     }
 
     function setupDagon() public {
@@ -51,12 +49,54 @@ contract DagonTokenModuleTest is BasicTestConfig, SafeTestTools {
         dagonAddress = address(dagon);
     }
 
-    function setupDagonContributionModule() public {
-        dagonContributionModule = new DagonContributionModule();
-        dagonContributionModuleAddress = address(dagonContributionModule);
+    function setupDagonTokenFallbackHandler() public {
+        Dagon.Ownership[] memory owners = new Dagon.Ownership[](2);
+        owners[0] = Dagon.Ownership({ owner: alice, shares: 1 });
+        owners[1] = Dagon.Ownership({ owner: bob, shares: 1 });
 
-        // write dagon address to dagonContributionModule
-        stdstore.target(dagonContributionModuleAddress).sig("DAGON_SINGLETON()").checked_write(dagonAddress);
+        setting = Dagon.Settings({ token: address(0), standard: Dagon.Standard.DAGON, threshold: 1 });
+
+        meta = Dagon.Metadata({
+            name: "name",
+            symbol: "sym",
+            tokenURI: "safe.uri",
+            authority: IAuth(address(0)),
+            totalSupply: 0
+        });
+
+        dagonTokenFallbackHandler = new DagonTokenFallbackHandler(dagonAddress, owners, setting, meta);
+        dagonTokenFallbackHandlerAddress = address(dagonTokenFallbackHandler);
+    }
+
+    function setupSafe() public {
+        address[] memory owners = new address[](2);
+        owners[0] = alice;
+        owners[1] = bob;
+
+        // Setup a safe with some owners, and the dagon token fallback handler as the fallback handler
+        bytes memory init = abi.encodeWithSelector(
+            Safe.setup.selector,
+            owners,
+            THRESHOLD,
+            address(0),
+            new bytes(0),
+            dagonTokenFallbackHandlerAddress,
+            address(0),
+            0,
+            payable(address(0))
+        );
+
+        // Format for the safe-tools lib
+        AdvancedSafeInitParams memory params;
+        params.initData = init;
+
+        uint256[] memory pks = new uint256[](2);
+        pks[0] = alicePk;
+        pks[1] = bobPk;
+
+        safeInstance = _setupSafe(pks, THRESHOLD, STARTING_BALANCE, params);
+        safe = safeInstance.safe;
+        safeAddress = address(safe);
     }
 
     function test_setupSafe() public {
@@ -65,64 +105,25 @@ contract DagonTokenModuleTest is BasicTestConfig, SafeTestTools {
         assertEq(safeInstance.owners[1], alice, "owner not set on safe");
     }
 
-    function test_setupContributionModule() public {
-        assertEq(dagonContributionModule.DAGON_SINGLETON(), dagonAddress);
-    }
-
     function test_setDagonForSafe() public {
-        // build call to set dagon - 'install'
+        console.log(safeAddress.balance);
+        safeInstance.execTransaction({ to: alice, value: 0.5 ether, data: "" }); // send .5 eth to alice
 
-        Dagon.Ownership[] memory owners = new Dagon.Ownership[](0);
-
-        Dagon.Settings memory setting;
-        setting.token = safeAddress;
-        setting.standard = Dagon.Standard.DAGON;
-        setting.threshold = 1;
-
-        Dagon.Metadata memory meta;
-        meta.name = "";
-        meta.symbol = "";
-        meta.tokenURI = "";
-        meta.authority = IAuth(address(0));
-
-        bytes memory installCalldata = abi.encodeWithSelector(Dagon.install.selector, owners, setting, meta);
-
-        (uint8 v, bytes32 r, bytes32 s) = safeInstance.signTransaction(
-            alicePk,
-            dagonContributionModuleAddress,
-            0,
-            installCalldata,
-            Enum.Operation.DelegateCall,
-            0,
-            0,
-            0,
-            address(0),
-            address(0)
-        );
-
-        // use lib to build tx
-        safeInstance.execTransaction(
-            dagonContributionModuleAddress,
-            0,
-            installCalldata,
-            Enum.Operation.DelegateCall,
-            0,
-            0,
-            0,
-            address(0),
-            address(0),
-            abi.encodePacked(v, r, s)
-        );
-
-        (address setTkn, uint88 setThreshold, Dagon.Standard setStd) = dagon.getSettings(safeAddress);
-        (,,, IAuth authority) = dagon.getMetadata(safeAddress);
+        // Check setting on dagon for safes token fallback handler
+        (address setTkn, uint88 setThreshold, Dagon.Standard setStd) =
+            dagon.getSettings(dagonTokenFallbackHandlerAddress);
 
         assertEq(address(setTkn), address(setting.token));
         assertEq(uint256(setThreshold), uint256(setting.threshold));
         assertEq(uint8(setStd), uint8(setting.standard));
 
-        // assertEq(dagon.tokenURI(accountId), "");
-        // (,,, IAuth authority) = dagon.getMetadata(address(account));
-        // assertEq(address(authority), address(0));
+        // Check metadata on dagon for safes token fallback handler
+        (string memory name, string memory symbol, string memory tokenURI, IAuth authority) =
+            dagon.getMetadata(dagonTokenFallbackHandlerAddress);
+
+        assertEq(name, meta.name);
+        assertEq(symbol, meta.symbol);
+        assertEq(tokenURI, meta.tokenURI);
+        assertEq(address(authority), address(meta.authority));
     }
 }
