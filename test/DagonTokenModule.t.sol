@@ -52,9 +52,7 @@ contract DagonTokenModuleTest is BasicTestConfig, SafeTestTools {
         // Some useful test values
         owners.push(Dagon.Ownership({ owner: alice, shares: INITIAL_DAGON_BALANCE }));
         owners.push(Dagon.Ownership({ owner: bob, shares: INITIAL_DAGON_BALANCE }));
-
         setting = Dagon.Settings({ token: address(0), standard: Dagon.Standard.DAGON, threshold: 1 });
-
         meta = Dagon.Metadata({
             name: "name",
             symbol: "sym",

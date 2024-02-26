@@ -8,28 +8,16 @@ import "../lib/safe-contracts/contracts/common/SignatureDecoder.sol";
 
 import "forge-std/console.sol";
 
-interface GnosisSafe {
-    /// @dev Allows a Module to execute a Safe transaction without any further confirmations.
-    /// @param to Destination address of module transaction.
-    /// @param value Ether value of module transaction.
-    /// @param data Data payload of module transaction.
-    /// @param operation Operation type of module transaction.
-    function execTransactionFromModule(
-        address to,
-        uint256 value,
-        bytes calldata data,
-        Enum.Operation operation
-    )
-        external
-        returns (bool success);
-}
-
 contract DagonTokenModule {
     /// -----------------------------------------------------------------------
     /// Events & Errors
     /// -----------------------------------------------------------------------
 
     event AddedSafe(address safe);
+
+    error InstallationFailed();
+
+    error ContributionFailed();
 
     /// -----------------------------------------------------------------------
     /// DagonTokenModule Storage
@@ -66,11 +54,15 @@ contract DagonTokenModule {
     {
         console.log("DagonTokenModule: install");
 
-        bytes memory data = abi.encodeWithSelector(Dagon.install.selector, owners, setting, meta);
-        require(
-            GnosisSafe(safe).execTransactionFromModule(address(DAGON_SINGLETON), 0, data, Enum.Operation.Call),
-            "Could not execute token install"
-        );
+        bytes memory installCalldata = abi.encodeWithSelector(Dagon.install.selector, owners, setting, meta);
+
+        if (
+            !GnosisSafe(safe).execTransactionFromModule(
+                address(DAGON_SINGLETON), 0, installCalldata, Enum.Operation.Call
+            )
+        ) {
+            revert InstallationFailed();
+        }
     }
 
     /**
@@ -84,14 +76,35 @@ contract DagonTokenModule {
 
         // Mint the owner a token representing their contribution based on the type of token contributed
         if (standard == Dagon.Standard.DAGON) {
-            bytes memory data = abi.encodeWithSelector(Dagon.mint.selector, msg.sender, uint96(msg.value));
-            require(
-                GnosisSafe(safe).execTransactionFromModule(address(DAGON_SINGLETON), 0, data, Enum.Operation.Call),
-                "Could not execute token transfer"
-            );
+            bytes memory mintCalldata = abi.encodeWithSelector(Dagon.mint.selector, msg.sender, uint96(msg.value));
+
+            if (
+                !GnosisSafe(safe).execTransactionFromModule(
+                    address(DAGON_SINGLETON), 0, mintCalldata, Enum.Operation.Call
+                )
+            ) {
+                revert ContributionFailed();
+            }
         }
 
         // Forward the contribution to the safe
         safe.call{ value: msg.value }("");
     }
+}
+
+// Minimal interface for the module to interact with the Safe contract
+interface GnosisSafe {
+    /// @dev Allows a Module to execute a Safe transaction without any further confirmations.
+    /// @param to Destination address of module transaction.
+    /// @param value Ether value of module transaction.
+    /// @param data Data payload of module transaction.
+    /// @param operation Operation type of module transaction.
+    function execTransactionFromModule(
+        address to,
+        uint256 value,
+        bytes calldata data,
+        Enum.Operation operation
+    )
+        external
+        returns (bool success);
 }
