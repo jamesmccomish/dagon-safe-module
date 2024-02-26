@@ -31,12 +31,17 @@ contract DagonTokenModuleTest is BasicTestConfig, SafeTestTools {
     address public dagonTokenFallbackHandlerAddress;
 
     // Test settings for dagon
+    uint96 public constant INITIAL_BALANCE = 1000;
     Dagon.Settings setting;
     Dagon.Metadata meta;
 
     // Config for safe
     uint256 public constant THRESHOLD = 1;
     uint256 public constant STARTING_BALANCE = 1 ether;
+
+    /// -----------------------------------------------------------------------
+    /// Setup
+    /// -----------------------------------------------------------------------
 
     function setUp() public {
         setupDagon();
@@ -51,8 +56,8 @@ contract DagonTokenModuleTest is BasicTestConfig, SafeTestTools {
 
     function setupDagonTokenFallbackHandler() public {
         Dagon.Ownership[] memory owners = new Dagon.Ownership[](2);
-        owners[0] = Dagon.Ownership({ owner: alice, shares: 1 });
-        owners[1] = Dagon.Ownership({ owner: bob, shares: 1 });
+        owners[0] = Dagon.Ownership({ owner: alice, shares: INITIAL_BALANCE });
+        owners[1] = Dagon.Ownership({ owner: bob, shares: INITIAL_BALANCE });
 
         setting = Dagon.Settings({ token: address(0), standard: Dagon.Standard.DAGON, threshold: 1 });
 
@@ -99,6 +104,10 @@ contract DagonTokenModuleTest is BasicTestConfig, SafeTestTools {
         safeAddress = address(safe);
     }
 
+    /// -----------------------------------------------------------------------
+    /// Setup tests
+    /// -----------------------------------------------------------------------
+
     function test_setupSafe() public {
         assertEq(safeInstance.threshold, 1, "threshold not set");
         assertEq(safeInstance.owners[0], bob, "owner not set on safe");
@@ -106,9 +115,6 @@ contract DagonTokenModuleTest is BasicTestConfig, SafeTestTools {
     }
 
     function test_setDagonForSafe() public {
-        console.log(safeAddress.balance);
-        safeInstance.execTransaction({ to: alice, value: 0.5 ether, data: "" }); // send .5 eth to alice
-
         // Check setting on dagon for safes token fallback handler
         (address setTkn, uint88 setThreshold, Dagon.Standard setStd) =
             dagon.getSettings(dagonTokenFallbackHandlerAddress);
@@ -125,5 +131,59 @@ contract DagonTokenModuleTest is BasicTestConfig, SafeTestTools {
         assertEq(symbol, meta.symbol);
         assertEq(tokenURI, meta.tokenURI);
         assertEq(address(authority), address(meta.authority));
+    }
+
+    /**
+     * TODO
+     * - native transfers are not supported since there is a seperate 'receive' fallback on the safe
+     */
+    // function test_fallbackMint() public {
+    //     // Send some eth to the safe to trigger the fallback
+    //     safeAddress.call{ value: 1 ether }("");
+
+    //     // Check the balance of the safe
+    //     assertEq(asafeAddress.balance, 1 ether);
+    // }
+
+    /// -----------------------------------------------------------------------
+    /// Token callback tests
+    /// -----------------------------------------------------------------------
+
+    function test_mintOnErc1155SafeTransfer() public {
+        // Mint alice some erc1155 tokens
+        mockErc1155.mint(alice, 1, 1000, "");
+
+        // Send some erc1155 tokens to the safe to trigger the fallback
+        vm.prank(alice);
+        mockErc1155.safeTransferFrom(alice, safeAddress, 1, 1000, "");
+
+        // Check balances of safe and alice
+        assertEq(mockErc1155.balanceOf(safeAddress, 1), 1000);
+        assertEq(mockErc1155.balanceOf(alice, 1), 0);
+        assertEq(dagon.balanceOf(alice, uint256(uint160(dagonTokenFallbackHandlerAddress))), 1000 + INITIAL_BALANCE);
+    }
+
+    function test_mintOnErc1155SafeBatchTransfer() public {
+        // Mint alice some erc1155 tokens
+        uint256[] memory ids = new uint256[](2);
+        ids[0] = 0;
+        ids[1] = 1;
+
+        uint256[] memory amounts = new uint256[](2);
+        amounts[0] = 1000;
+        amounts[1] = 1000;
+
+        mockErc1155.batchMint(alice, ids, amounts, "");
+
+        // Send some erc1155 tokens to the safe to trigger the fallback
+        vm.prank(alice);
+        mockErc1155.safeBatchTransferFrom(alice, safeAddress, ids, amounts, "");
+
+        // Check balances of safe and alice
+        assertEq(mockErc1155.balanceOf(safeAddress, 0), 1000);
+        assertEq(mockErc1155.balanceOf(safeAddress, 1), 1000);
+        assertEq(mockErc1155.balanceOf(alice, 0), 0);
+        assertEq(mockErc1155.balanceOf(alice, 1), 0);
+        assertEq(dagon.balanceOf(alice, uint256(uint160(dagonTokenFallbackHandlerAddress))), 2000 + INITIAL_BALANCE);
     }
 }
