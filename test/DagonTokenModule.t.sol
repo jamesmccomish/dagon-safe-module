@@ -12,7 +12,7 @@ import "../lib/safe-tools/src/SafeTestTools.sol";
 import { Dagon, IAuth } from "../lib/dagon/src/Dagon.sol";
 
 // Contract imports
-import { DagonTokenFallbackHandler } from "../src/DagonTokenFallbackHandler.sol";
+import { DagonTokenModule } from "../src/DagonTokenModule.sol";
 
 contract DagonTokenModuleTest is BasicTestConfig, SafeTestTools {
     using stdStorage for StdStorage;
@@ -27,8 +27,8 @@ contract DagonTokenModuleTest is BasicTestConfig, SafeTestTools {
     Dagon public dagon;
     address public dagonAddress;
 
-    DagonTokenFallbackHandler public dagonTokenFallbackHandler;
-    address public dagonTokenFallbackHandlerAddress;
+    DagonTokenModule public dagonTokenModule;
+    address public dagonTokenModuleAddress;
 
     // Test settings for dagon
     uint96 public constant INITIAL_BALANCE = 1000;
@@ -45,7 +45,7 @@ contract DagonTokenModuleTest is BasicTestConfig, SafeTestTools {
 
     function setUp() public {
         setupDagon();
-        setupDagonTokenFallbackHandler();
+        setupDagonModule();
         setupSafe();
     }
 
@@ -54,23 +54,9 @@ contract DagonTokenModuleTest is BasicTestConfig, SafeTestTools {
         dagonAddress = address(dagon);
     }
 
-    function setupDagonTokenFallbackHandler() public {
-        Dagon.Ownership[] memory owners = new Dagon.Ownership[](2);
-        owners[0] = Dagon.Ownership({ owner: alice, shares: INITIAL_BALANCE });
-        owners[1] = Dagon.Ownership({ owner: bob, shares: INITIAL_BALANCE });
-
-        setting = Dagon.Settings({ token: address(0), standard: Dagon.Standard.DAGON, threshold: 1 });
-
-        meta = Dagon.Metadata({
-            name: "name",
-            symbol: "sym",
-            tokenURI: "safe.uri",
-            authority: IAuth(address(0)),
-            totalSupply: 0
-        });
-
-        dagonTokenFallbackHandler = new DagonTokenFallbackHandler(dagonAddress, owners, setting, meta);
-        dagonTokenFallbackHandlerAddress = address(dagonTokenFallbackHandler);
+    function setupDagonModule() public {
+        dagonTokenModule = new DagonTokenModule(dagonAddress);
+        dagonTokenModuleAddress = address(dagonTokenModule);
     }
 
     function setupSafe() public {
@@ -78,30 +64,15 @@ contract DagonTokenModuleTest is BasicTestConfig, SafeTestTools {
         owners[0] = alice;
         owners[1] = bob;
 
-        // Setup a safe with some owners, and the dagon token fallback handler as the fallback handler
-        bytes memory init = abi.encodeWithSelector(
-            Safe.setup.selector,
-            owners,
-            THRESHOLD,
-            address(0),
-            new bytes(0),
-            dagonTokenFallbackHandlerAddress,
-            address(0),
-            0,
-            payable(address(0))
-        );
-
-        // Format for the safe-tools lib
-        AdvancedSafeInitParams memory params;
-        params.initData = init;
-
         uint256[] memory pks = new uint256[](2);
         pks[0] = alicePk;
         pks[1] = bobPk;
 
-        safeInstance = _setupSafe(pks, THRESHOLD, STARTING_BALANCE, params);
+        safeInstance = _setupSafe(pks, THRESHOLD, STARTING_BALANCE);
         safe = safeInstance.safe;
         safeAddress = address(safe);
+
+        safeInstance.enableModule(dagonTokenModuleAddress);
     }
 
     /// -----------------------------------------------------------------------
@@ -109,15 +80,15 @@ contract DagonTokenModuleTest is BasicTestConfig, SafeTestTools {
     /// -----------------------------------------------------------------------
 
     function test_setupSafe() public {
-        assertEq(safeInstance.threshold, 1, "threshold not set");
-        assertEq(safeInstance.owners[0], bob, "owner not set on safe");
-        assertEq(safeInstance.owners[1], alice, "owner not set on safe");
+        assertEq(safeInstance.threshold, 1);
+        assertEq(safeInstance.owners[0], bob);
+        assertEq(safeInstance.owners[1], alice);
+        assertEq(safeInstance.safe.isModuleEnabled(dagonTokenModuleAddress), true);
     }
 
     function test_setDagonForSafe() public {
         // Check setting on dagon for safes token fallback handler
-        (address setTkn, uint88 setThreshold, Dagon.Standard setStd) =
-            dagon.getSettings(dagonTokenFallbackHandlerAddress);
+        (address setTkn, uint88 setThreshold, Dagon.Standard setStd) = dagon.getSettings(dagonTokenModuleAddress);
 
         assertEq(address(setTkn), address(setting.token));
         assertEq(uint256(setThreshold), uint256(setting.threshold));
@@ -125,7 +96,7 @@ contract DagonTokenModuleTest is BasicTestConfig, SafeTestTools {
 
         // Check metadata on dagon for safes token fallback handler
         (string memory name, string memory symbol, string memory tokenURI, IAuth authority) =
-            dagon.getMetadata(dagonTokenFallbackHandlerAddress);
+            dagon.getMetadata(dagonTokenModuleAddress);
 
         assertEq(name, meta.name);
         assertEq(symbol, meta.symbol);
@@ -133,57 +104,17 @@ contract DagonTokenModuleTest is BasicTestConfig, SafeTestTools {
         assertEq(address(authority), address(meta.authority));
     }
 
-    /**
-     * TODO
-     * - native transfers are not supported since there is a seperate 'receive' fallback on the safe
-     */
-    // function test_fallbackMint() public {
-    //     // Send some eth to the safe to trigger the fallback
-    //     safeAddress.call{ value: 1 ether }("");
+    /// -----------------------------------------------------------------------
+    /// Module tests
+    /// -----------------------------------------------------------------------
 
-    //     // Check the balance of the safe
-    //     assertEq(asafeAddress.balance, 1 ether);
+    // function test_install() public {
+    //     prank(alice);
+    //     dagonTokenModule.contribute(safeAddress, Dagon.Standard.DAGON, { value: 1 ether });
     // }
 
-    /// -----------------------------------------------------------------------
-    /// Token callback tests
-    /// -----------------------------------------------------------------------
-
-    function test_mintOnErc1155SafeTransfer() public {
-        // Mint alice some erc1155 tokens
-        mockErc1155.mint(alice, 1, 1000, "");
-
-        // Send some erc1155 tokens to the safe to trigger the fallback
-        vm.prank(alice);
-        mockErc1155.safeTransferFrom(alice, safeAddress, 1, 1000, "");
-
-        // Check balances of safe and alice
-        assertEq(mockErc1155.balanceOf(safeAddress, 1), 1000);
-        assertEq(mockErc1155.balanceOf(alice, 1), 0);
-        assertEq(dagon.balanceOf(alice, uint256(uint160(dagonTokenFallbackHandlerAddress))), 1000 + INITIAL_BALANCE);
-    }
-
-    function test_mintOnErc1155SafeBatchTransfer() public {
-        // Mint alice some erc1155 tokens
-        uint256[] memory ids = new uint256[](2);
-        ids[0] = 0;
-        ids[1] = 1;
-
-        uint256[] memory amounts = new uint256[](2);
-        amounts[0] = 1000;
-        amounts[1] = 1000;
-
-        mockErc1155.batchMint(alice, ids, amounts, "");
-
-        // Send some erc1155 tokens to the safe to trigger the fallback
-        vm.prank(alice);
-        mockErc1155.safeBatchTransferFrom(alice, safeAddress, ids, amounts, "");
-
-        // Check balances of safe and alice
-        assertEq(mockErc1155.balanceOf(safeAddress, 0), 1000);
-        assertEq(mockErc1155.balanceOf(safeAddress, 1), 1000);
-        assertEq(mockErc1155.balanceOf(alice, 0), 0);
-        assertEq(mockErc1155.balanceOf(alice, 1), 0);
-        assertEq(dagon.balanceOf(alice, uint256(uint160(dagonTokenFallbackHandlerAddress))), 2000 + INITIAL_BALANCE);
-    }
+    // function test_contributeNativeToken() public {
+    //     prank(alice);
+    //     dagonTokenModule.contribute(safeAddress, Dagon.Standard.DAGON, { value: 1 ether });
+    // }
 }
