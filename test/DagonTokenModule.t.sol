@@ -49,7 +49,7 @@ contract DagonTokenModuleTest is BasicTestConfig, SafeTestTools {
         setupDagonModule();
         setupSafe();
 
-        // Some useful test values
+        // Setting our dagon test settings
         owners.push(Dagon.Ownership({ owner: alice, shares: INITIAL_DAGON_BALANCE }));
         owners.push(Dagon.Ownership({ owner: bob, shares: INITIAL_DAGON_BALANCE }));
         setting = Dagon.Settings({ token: address(0), standard: Dagon.Standard.DAGON, threshold: 1 });
@@ -96,11 +96,12 @@ contract DagonTokenModuleTest is BasicTestConfig, SafeTestTools {
     }
 
     /// -----------------------------------------------------------------------
-    /// Module tests
+    /// Module setup tests
     /// -----------------------------------------------------------------------
 
     function test_installDagonForSafe() public {
-        dagonTokenModule.install(safeAddress, owners, setting, meta);
+        vm.prank(safeAddress);
+        dagonTokenModule.install(owners, setting, meta);
 
         // Check setting on dagon for safes token fallback handler
         (address setTkn, uint88 setThreshold, Dagon.Standard setStd) = dagon.getSettings(safeAddress);
@@ -119,8 +120,25 @@ contract DagonTokenModuleTest is BasicTestConfig, SafeTestTools {
         assertEq(address(authority), address(meta.authority));
     }
 
+    function test_setTrackedToken() public {
+        vm.prank(safeAddress);
+        dagonTokenModule.install(owners, setting, meta);
+
+        uint256 exchangeRate = 2;
+
+        vm.prank(safeAddress);
+        dagonTokenModule.setTrackedToken(address(mockErc20), exchangeRate);
+
+        assertEq(dagonTokenModule.safesTrackedTokenExchangeRates(safeAddress, address(mockErc20)), exchangeRate);
+    }
+
+    /// -----------------------------------------------------------------------
+    /// Contribution tests
+    /// -----------------------------------------------------------------------
+
     function test_contributeNativeToken() public {
-        dagonTokenModule.install(safeAddress, owners, setting, meta);
+        vm.prank(safeAddress);
+        dagonTokenModule.install(owners, setting, meta);
 
         assertEq(safeAddress.balance, STARTING_BALANCE);
         assertEq(dagon.balanceOf(alice, uint256(uint160(safeAddress))), INITIAL_DAGON_BALANCE);
@@ -130,5 +148,23 @@ contract DagonTokenModuleTest is BasicTestConfig, SafeTestTools {
 
         assertEq(safeAddress.balance, STARTING_BALANCE + 1 ether);
         assertEq(dagon.balanceOf(alice, uint256(uint160(safeAddress))), INITIAL_DAGON_BALANCE + 1 ether);
+    }
+
+    function test_contributeNativeTokenForExchangeRate() public {
+        vm.prank(safeAddress);
+        dagonTokenModule.install(owners, setting, meta);
+
+        // Update exchange rate for native contributions
+        uint256 exchangeRate = 2;
+        vm.prank(safeAddress);
+        dagonTokenModule.setTrackedToken(address(0), exchangeRate);
+
+        vm.prank(alice);
+        dagonTokenModule.contribute{ value: 1 ether }(safeAddress, Dagon.Standard.DAGON);
+
+        assertEq(safeAddress.balance, STARTING_BALANCE + 1 ether);
+        assertEq(
+            dagon.balanceOf(alice, uint256(uint160(safeAddress))), INITIAL_DAGON_BALANCE + (exchangeRate * 1 ether)
+        );
     }
 }

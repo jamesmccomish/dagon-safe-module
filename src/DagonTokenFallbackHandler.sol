@@ -11,10 +11,10 @@ import "../lib/safe-contracts/contracts/interfaces/IERC165.sol";
 import "forge-std/console.sol";
 
 /**
- * todo
- * - convert to proxy which groups can set as their own fallback handler
- * - correct IOwnable & enable in Dagon
- * - add custom token list for which treasury tokens are minted
+ * @dev
+ * !!! In this end this model is not useful !!!
+ * It relies on one of the token callbacks to be called, which is not guaranteed
+ * Because Safes have a NativeCurrencyPaymentFallback, adapting it to cover native transfers would be difficult
  */
 contract DagonTokenFallbackHandler is ERC1155TokenReceiver, ERC777TokensRecipient, ERC721TokenReceiver, IERC165 {
     Dagon public immutable DAGON_SINGLETON;
