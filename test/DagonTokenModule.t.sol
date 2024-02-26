@@ -144,7 +144,7 @@ contract DagonTokenModuleTest is BasicTestConfig, SafeTestTools {
         assertEq(dagon.balanceOf(alice, uint256(uint160(safeAddress))), INITIAL_DAGON_BALANCE);
 
         vm.prank(alice);
-        dagonTokenModule.contribute{ value: 1 ether }(safeAddress, Dagon.Standard.DAGON);
+        dagonTokenModule.contribute{ value: 1 ether }(safeAddress, Dagon.Standard.DAGON, new bytes(0));
 
         assertEq(safeAddress.balance, STARTING_BALANCE + 1 ether);
         assertEq(dagon.balanceOf(alice, uint256(uint160(safeAddress))), INITIAL_DAGON_BALANCE + 1 ether);
@@ -160,11 +160,54 @@ contract DagonTokenModuleTest is BasicTestConfig, SafeTestTools {
         dagonTokenModule.setTrackedToken(address(0), exchangeRate);
 
         vm.prank(alice);
-        dagonTokenModule.contribute{ value: 1 ether }(safeAddress, Dagon.Standard.DAGON);
+        dagonTokenModule.contribute{ value: 1 ether }(safeAddress, Dagon.Standard.DAGON, new bytes(0));
 
         assertEq(safeAddress.balance, STARTING_BALANCE + 1 ether);
         assertEq(
             dagon.balanceOf(alice, uint256(uint160(safeAddress))), INITIAL_DAGON_BALANCE + (exchangeRate * 1 ether)
         );
+    }
+
+    function test_cannotContributeErc20IfTokenNotTracked() public {
+        vm.prank(safeAddress);
+        dagonTokenModule.install(owners, setting, meta);
+
+        // Build the calldata for the contribute function
+        bytes memory erc20TransferFromCalldata =
+            abi.encodeWithSelector(mockErc20.transferFrom.selector, alice, safeAddress, 1 ether);
+        bytes memory contributeCalldata = abi.encodePacked(address(mockErc20), erc20TransferFromCalldata);
+
+        vm.expectRevert(DagonTokenModule.TokenNotTracked.selector);
+        vm.prank(alice);
+        dagonTokenModule.contribute(safeAddress, Dagon.Standard.ERC20, contributeCalldata);
+    }
+
+    function test_contributeErc20() public {
+        vm.prank(safeAddress);
+        dagonTokenModule.install(owners, setting, meta);
+
+        mockErc20.mint(alice, 1 ether);
+
+        assertEq(mockErc20.balanceOf(safeAddress), 0);
+        assertEq(mockErc20.balanceOf(alice), 1 ether);
+        assertEq(dagon.balanceOf(alice, uint256(uint160(safeAddress))), INITIAL_DAGON_BALANCE);
+
+        vm.prank(alice);
+        mockErc20.approve(dagonTokenModuleAddress, 1 ether);
+
+        vm.prank(safeAddress);
+        dagonTokenModule.setTrackedToken(address(mockErc20), 1);
+
+        // Build the calldata for the contribute function
+        bytes memory erc20TransferFromCalldata =
+            abi.encodeWithSelector(mockErc20.transferFrom.selector, alice, safeAddress, 1 ether);
+        bytes memory contributeCalldata = abi.encodePacked(address(mockErc20), erc20TransferFromCalldata);
+
+        vm.prank(alice);
+        dagonTokenModule.contribute(safeAddress, Dagon.Standard.ERC20, contributeCalldata);
+
+        assertEq(mockErc20.balanceOf(safeAddress), 1 ether);
+        assertEq(mockErc20.balanceOf(alice), 0);
+        assertEq(dagon.balanceOf(alice, uint256(uint160(safeAddress))), INITIAL_DAGON_BALANCE + 1 ether);
     }
 }
