@@ -31,7 +31,8 @@ contract DagonTokenModuleTest is BasicTestConfig, SafeTestTools {
     address public dagonTokenModuleAddress;
 
     // Test settings for dagon
-    uint96 public constant INITIAL_BALANCE = 1000;
+    uint96 public constant INITIAL_DAGON_BALANCE = 1000;
+    Dagon.Ownership[] owners;
     Dagon.Settings setting;
     Dagon.Metadata meta;
 
@@ -47,6 +48,20 @@ contract DagonTokenModuleTest is BasicTestConfig, SafeTestTools {
         setupDagon();
         setupDagonModule();
         setupSafe();
+
+        // Some useful test values
+        owners.push(Dagon.Ownership({ owner: alice, shares: INITIAL_DAGON_BALANCE }));
+        owners.push(Dagon.Ownership({ owner: bob, shares: INITIAL_DAGON_BALANCE }));
+
+        setting = Dagon.Settings({ token: address(0), standard: Dagon.Standard.DAGON, threshold: 1 });
+
+        meta = Dagon.Metadata({
+            name: "name",
+            symbol: "sym",
+            tokenURI: "safe.uri",
+            authority: IAuth(address(0)),
+            totalSupply: 0
+        });
     }
 
     function setupDagon() public {
@@ -60,10 +75,6 @@ contract DagonTokenModuleTest is BasicTestConfig, SafeTestTools {
     }
 
     function setupSafe() public {
-        address[] memory owners = new address[](2);
-        owners[0] = alice;
-        owners[1] = bob;
-
         uint256[] memory pks = new uint256[](2);
         pks[0] = alicePk;
         pks[1] = bobPk;
@@ -86,9 +97,15 @@ contract DagonTokenModuleTest is BasicTestConfig, SafeTestTools {
         assertEq(safeInstance.safe.isModuleEnabled(dagonTokenModuleAddress), true);
     }
 
-    function test_setDagonForSafe() public {
+    /// -----------------------------------------------------------------------
+    /// Module tests
+    /// -----------------------------------------------------------------------
+
+    function test_installDagonForSafe() public {
+        dagonTokenModule.install(safeAddress, owners, setting, meta);
+
         // Check setting on dagon for safes token fallback handler
-        (address setTkn, uint88 setThreshold, Dagon.Standard setStd) = dagon.getSettings(dagonTokenModuleAddress);
+        (address setTkn, uint88 setThreshold, Dagon.Standard setStd) = dagon.getSettings(safeAddress);
 
         assertEq(address(setTkn), address(setting.token));
         assertEq(uint256(setThreshold), uint256(setting.threshold));
@@ -96,7 +113,7 @@ contract DagonTokenModuleTest is BasicTestConfig, SafeTestTools {
 
         // Check metadata on dagon for safes token fallback handler
         (string memory name, string memory symbol, string memory tokenURI, IAuth authority) =
-            dagon.getMetadata(dagonTokenModuleAddress);
+            dagon.getMetadata(safeAddress);
 
         assertEq(name, meta.name);
         assertEq(symbol, meta.symbol);
@@ -104,17 +121,16 @@ contract DagonTokenModuleTest is BasicTestConfig, SafeTestTools {
         assertEq(address(authority), address(meta.authority));
     }
 
-    /// -----------------------------------------------------------------------
-    /// Module tests
-    /// -----------------------------------------------------------------------
+    function test_contributeNativeToken() public {
+        dagonTokenModule.install(safeAddress, owners, setting, meta);
 
-    // function test_install() public {
-    //     prank(alice);
-    //     dagonTokenModule.contribute(safeAddress, Dagon.Standard.DAGON, { value: 1 ether });
-    // }
+        assertEq(safeAddress.balance, STARTING_BALANCE);
+        assertEq(dagon.balanceOf(alice, uint256(uint160(safeAddress))), INITIAL_DAGON_BALANCE);
 
-    // function test_contributeNativeToken() public {
-    //     prank(alice);
-    //     dagonTokenModule.contribute(safeAddress, Dagon.Standard.DAGON, { value: 1 ether });
-    // }
+        vm.prank(alice);
+        dagonTokenModule.contribute{ value: 1 ether }(safeAddress, Dagon.Standard.DAGON);
+
+        assertEq(safeAddress.balance, STARTING_BALANCE + 1 ether);
+        assertEq(dagon.balanceOf(alice, uint256(uint160(safeAddress))), INITIAL_DAGON_BALANCE + 1 ether);
+    }
 }
