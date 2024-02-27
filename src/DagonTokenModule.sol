@@ -2,18 +2,17 @@
 pragma solidity ^0.8.23;
 
 import { Dagon, IAuth } from "../lib/dagon/src/Dagon.sol";
-
-import "../lib/safe-contracts/contracts/common/Enum.sol";
-import "../lib/safe-contracts/contracts/common/SignatureDecoder.sol";
+import { Enum } from "../lib/safe-contracts/contracts/common/Enum.sol";
 
 import "forge-std/console.sol";
 
 /**
  * TODO
  * - set limits on exchange multiple and check against uint96 casting to dagon token
- * - think about how contributions directly minting voting share can influence the group
+ * - think about how contributions directly minting voting share can influence group voting security
+ *      eg. if a user contributes a large amount of a token, they could quickly execute whatever they want
  * - provide a better way to value contributions based on updated treasury value
- * -- eg. if I contribute X, then the exchange could be adapted based on the new treasury value
+ *      eg. if I contribute X, then the exchange could be adapted based on the new treasury value
  * - optimise packing on trackedTokens mapping (pack address and exchange rate into uint256)
  * - more efficient decoding using assembly in transfer handlers
  */
@@ -22,16 +21,12 @@ contract DagonTokenModule {
     /// Events & Errors
     /// -----------------------------------------------------------------------
 
-    event AddedSafe(address safe);
-
     event TrackedTokenSet(address token, uint256 exchange);
 
     error InstallationFailed();
-
+    error InvalidOwner();
     error TokenNotTracked();
-
     error ContributionFailed();
-
     error TokenTransferFailed();
 
     /// -----------------------------------------------------------------------
@@ -62,7 +57,6 @@ contract DagonTokenModule {
      * @param owners List of owners for the safe
      * @param setting Settings for the safe
      * @param meta Metadata for the safe
-     * todo - restrict if already set
      */
     function install(
         Dagon.Ownership[] memory owners,
@@ -72,6 +66,8 @@ contract DagonTokenModule {
         public
         payable
     {
+        if (DAGON_SINGLETON.totalSupply(uint256(uint160(msg.sender))) != 0) revert InstallationFailed();
+
         bytes memory installCalldata = abi.encodeWithSelector(Dagon.install.selector, owners, setting, meta);
 
         if (
@@ -105,8 +101,6 @@ contract DagonTokenModule {
      * @param contributionCalldata Calldata for the transfer function of the token
      * @dev contributionCalldata is abi.encodePacked(tokenAddress, tokenTransferCalldata)
      *      where tokenTransferCalldata is the relevant transferFrom or safeTransferFrom calldata
-     * todo - add support for non native tokens
-     * todo - ensure sender is an owner
      */
     function contribute(address safe, Dagon.Standard standard, bytes calldata contributionCalldata) public payable {
         // Mint the owner a token representing their contribution based on the type of token contributed
@@ -124,6 +118,8 @@ contract DagonTokenModule {
      * @param safe The safe to which the contribution is made
      */
     function _handleNativeContribution(address safe) internal {
+        if (!GnosisSafe(safe).isOwner(msg.sender)) revert InvalidOwner();
+
         // Mint the owner a token representing their contribution based on the type of token contributed
         bytes memory mintCalldata = abi.encodeWithSelector(
             Dagon.mint.selector, msg.sender, uint96(msg.value * safesTrackedTokenExchangeRates[safe][address(0)])
@@ -156,7 +152,7 @@ contract DagonTokenModule {
         // Extract the transfer details from the calldata
         (address from, address to, uint256 amount) = abi.decode(transferFromCalldata, (address, address, uint256));
 
-        // ! todo check to address, safe, and that from is an owner
+        if (!GnosisSafe(safe).isOwner(from)) revert InvalidOwner();
 
         // Transfer the tokens from the sender to the safe
         (bool success, bytes memory returnData) =
@@ -174,7 +170,7 @@ contract DagonTokenModule {
     }
 }
 
-// Minimal interface for the module to interact with the Safe contract
+/// @notice Minimal interface for the module to interact with the Safe contract
 interface GnosisSafe {
     /// @dev Allows a Module to execute a Safe transaction without any further confirmations.
     /// @param to Destination address of module transaction.
@@ -189,4 +185,7 @@ interface GnosisSafe {
     )
         external
         returns (bool success);
+
+    /// @dev Returns whether an address is an owner of the Safe.
+    function isOwner(address owner) external view returns (bool);
 }
