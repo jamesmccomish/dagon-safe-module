@@ -12,6 +12,12 @@ import { Dagon, IAuth } from "../lib/dagon/src/Dagon.sol";
  *      eg. if I contribute X, then the exchange could be adapted based on the new treasury value
  * - optimise packing on trackedTokens mapping (pack address and exchange rate into uint256)
  */
+
+/**
+ * @title DagonTokenModule
+ * @notice A module for Safes to enable tracking of contributions
+ * @dev Currently supports native tokens and ERC20 tokens via transferFrom only
+ */
 contract DagonTokenModule {
     /// -----------------------------------------------------------------------
     /// Events & Errors
@@ -106,10 +112,6 @@ contract DagonTokenModule {
 
         if (standard == Dagon.Standard.ERC20) _handleERC20Contribution(contributionCalldata);
     }
-
-    /// -----------------------------------------------------------------------
-    /// Utils
-    /// -----------------------------------------------------------------------
 
     /**
      * @notice Handles the contribution of native tokens
