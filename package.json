@@ -1,22 +1,17 @@
 {
-	"name": "@jamesmccomish/fast-foundry-template",
-	"description": "Foundry-based template for developing Solidity smart contracts, based off https://github.com/PaulRBerg",
+	"name": "@jamesmccomish/dagon-safe-module",
+	"description": "Safe module for tracking token contributions on Dagon singleton",
 	"version": "1.0.0",
 	"author": {
 		"name": "James McComish",
 		"url": "https://github.com/jamesmccomish"
 	},
-	"devDependencies": {
-		"prettier": "^3.0.3"
-	},
 	"keywords": [
-		"blockchain",
 		"ethereum",
-		"forge",
 		"foundry",
 		"smart-contracts",
 		"solidity",
-		"template"
+		"safe"
 	],
 	"private": true,
 	"scripts": {
