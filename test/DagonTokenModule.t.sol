@@ -248,7 +248,6 @@ contract DagonTokenModuleTest is BasicTestConfig, SafeTestTools {
 
         vm.prank(alice);
         mockErc20.approve(dagonTokenModuleAddress, 1 ether);
-
         vm.prank(safeAddress);
         dagonTokenModule.setTrackedToken(address(mockErc20), 1);
 

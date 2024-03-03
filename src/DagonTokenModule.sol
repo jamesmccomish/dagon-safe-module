@@ -2,9 +2,6 @@
 pragma solidity ^0.8.23;
 
 import { Dagon, IAuth } from "../lib/dagon/src/Dagon.sol";
-import { Enum } from "../lib/safe-contracts/contracts/common/Enum.sol";
-
-import "forge-std/console.sol";
 
 /**
  * TODO
@@ -14,7 +11,6 @@ import "forge-std/console.sol";
  * - provide a better way to value contributions based on updated treasury value
  *      eg. if I contribute X, then the exchange could be adapted based on the new treasury value
  * - optimise packing on trackedTokens mapping (pack address and exchange rate into uint256)
- * - more efficient decoding using assembly in transfer handlers
  */
 contract DagonTokenModule {
     /// -----------------------------------------------------------------------
@@ -34,7 +30,7 @@ contract DagonTokenModule {
     /// -----------------------------------------------------------------------
 
     /// @dev The immutable address of the dagon singleton
-    Dagon public immutable DAGON_SINGLETON;
+    address public immutable DAGON_SINGLETON;
 
     /// @dev Mapping of tokens for which contributions are tracked
     /// - eg. for a safe with WETH => 2, owners are minted 2 x Dagon tokens for every 1 WETH contributed
@@ -45,7 +41,7 @@ contract DagonTokenModule {
     /// -----------------------------------------------------------------------
 
     constructor(address _dagonAddress) {
-        DAGON_SINGLETON = Dagon(_dagonAddress);
+        DAGON_SINGLETON = _dagonAddress;
     }
 
     /// -----------------------------------------------------------------------
@@ -66,15 +62,17 @@ contract DagonTokenModule {
         public
         payable
     {
-        if (DAGON_SINGLETON.totalSupply(uint256(uint160(msg.sender))) != 0) revert InstallationFailed();
+        if (Dagon(DAGON_SINGLETON).totalSupply(uint256(uint160(msg.sender))) != 0) revert InstallationFailed();
 
         bytes memory installCalldata = abi.encodeWithSelector(Dagon.install.selector, owners, setting, meta);
 
         if (
             !GnosisSafe(msg.sender).execTransactionFromModule(
-                address(DAGON_SINGLETON), 0, installCalldata, Enum.Operation.Call
+                DAGON_SINGLETON, 0, installCalldata, GnosisSafe.Operation.Call
             )
-        ) revert InstallationFailed();
+        ) {
+            revert InstallationFailed();
+        }
 
         // Default native token exchange rate to 1
         safesTrackedTokenExchangeRates[msg.sender][address(0)] = 1;
@@ -106,7 +104,7 @@ contract DagonTokenModule {
         // Mint the owner a token representing their contribution based on the type of token contributed
         if (standard == Dagon.Standard.DAGON) _handleNativeContribution(safe);
 
-        if (standard == Dagon.Standard.ERC20) _handleERC20Contribution(safe, contributionCalldata);
+        if (standard == Dagon.Standard.ERC20) _handleERC20Contribution(contributionCalldata);
     }
 
     /// -----------------------------------------------------------------------
@@ -125,8 +123,7 @@ contract DagonTokenModule {
             Dagon.mint.selector, msg.sender, uint96(msg.value * safesTrackedTokenExchangeRates[safe][address(0)])
         );
 
-        if (!GnosisSafe(safe).execTransactionFromModule(address(DAGON_SINGLETON), 0, mintCalldata, Enum.Operation.Call))
-        {
+        if (!GnosisSafe(safe).execTransactionFromModule(DAGON_SINGLETON, 0, mintCalldata, GnosisSafe.Operation.Call)) {
             revert ContributionFailed();
         }
 
@@ -135,36 +132,93 @@ contract DagonTokenModule {
     }
 
     /**
-     * @notice Handles the contribution of an ERC20 token
-     * @param safe The safe to which the contribution is made
+     * @notice Handles the contribution of an ERC20 token via transferFrom
      * @param contributionCalldata The combined token and transfer calldata: abi.encodePacked(tokenAddress,
      * tokenTransferCalldata)
-     * TODO - tidy this madness using assembly for decoding
      */
-    function _handleERC20Contribution(address safe, bytes calldata contributionCalldata) internal {
-        (address tokenAddress, bytes memory transferFromCalldata) =
-            (address(uint160(bytes20(contributionCalldata[:20]))), contributionCalldata[24:contributionCalldata.length]);
+    function _handleERC20Contribution(bytes calldata contributionCalldata) internal {
+        address from;
+        address to;
+        uint256 amount;
+        uint256 exchangeRate;
 
-        uint256 exchangeRate = safesTrackedTokenExchangeRates[safe][tokenAddress];
+        assembly {
+            // Extract the token address & transfer calldata
+            let tokenAddress := shr(96, calldataload(contributionCalldata.offset))
+            // Set transferCalldata
+            let transferCalldata := mload(0x40)
+            // Copying 96 bytes from calldata, skipping the first 24 bytes (20 for address & 4 for function selector)
+            calldatacopy(transferCalldata, add(contributionCalldata.offset, 0x18), 0xc0)
 
-        if (exchangeRate == 0) revert TokenNotTracked();
+            // Extract details from the transfer calldata
+            from := mload(transferCalldata)
+            to := mload(add(transferCalldata, 0x20))
+            amount := mload(add(transferCalldata, 0x40))
 
-        // Extract the transfer details from the calldata
-        (address from, address to, uint256 amount) = abi.decode(transferFromCalldata, (address, address, uint256));
+            // Get the exchange rate from storage mapping
+            let memPtr := mload(0x40)
+            // safesTrackedTokenExchangeRates[to] in slot keccak256(abi.encode(to, uint256(slot)))
+            mstore(memPtr, to)
+            mstore(add(memPtr, 0x20), safesTrackedTokenExchangeRates.slot)
+            let mappingHash := keccak256(memPtr, 0x40)
+            // safesTrackedTokenExchangeRates[to][tokenId] in slot keccak256(abi.encode(tokenAddress,mappingHash))
+            mstore(memPtr, tokenAddress)
+            mstore(add(memPtr, 0x20), mappingHash)
+            let exchangeRateHash := keccak256(memPtr, 0x40)
+            exchangeRate := sload(exchangeRateHash)
+            // If exchange rate is 0
+            if iszero(exchangeRate) {
+                // Revert with 'TokenNotTracked' error
+                mstore(0x00, 0x63cf4410)
+                revert(0x1c, 0x04)
+            }
 
-        if (!GnosisSafe(safe).isOwner(from)) revert InvalidOwner();
+            // Prepare and call `isOwner`
+            memPtr := mload(0x40)
+            // Function selector: keccak256("isOwner(address)") = 0x2f54bf6e
+            mstore(memPtr, hex"2f54bf6e")
+            mstore(add(memPtr, 0x04), from)
+            // Call `isOwner` and write return data to scratch space, reverting if failed
+            if iszero(call(gas(), to, 0, memPtr, 0x40, 0x00, 0x20)) {
+                // Revert with  error
+                mstore(0x00, 0x11111111)
+                revert(0x1c, 0x04)
+            }
+            // If token sender is not owner
+            if iszero(mload(0x00)) {
+                // Revert with 'InvalidOwner' error
+                mstore(0x00, 0x49e27cff)
+                revert(0x1c, 0x04)
+            }
 
-        // Transfer the tokens from the sender to the safe
-        (bool success, bytes memory returnData) =
-            tokenAddress.call(abi.encodePacked(hex"23b872dd", transferFromCalldata));
+            // Prepare and call `transferFrom`
+            memPtr := mload(0x40)
+            // 0x64 = length of transferFrom calldata + function sig
+            mstore(transferCalldata, 0x64)
+            calldatacopy(transferCalldata, add(contributionCalldata.offset, 0x14), 0x64)
+            // Call `transferFrom` and write return data to scratch space, reverting if failed
+            if iszero(call(gas(), tokenAddress, 0, transferCalldata, 0x64, 0x00, 0x20)) {
+                // Revert with  error
+                mstore(0x00, 0x11111111)
+                revert(0x1c, 0x04)
+            }
+            // If transfer failed
+            if iszero(mload(0x00)) {
+                // Revert with 'TokenTransferFailed' error
+                mstore(0x00, hex"045c4b02")
+                revert(0x1c, 0x04)
+            }
+        }
 
-        if (!success) revert TokenTransferFailed();
-
+        // todo convert to assembly
         // Mint the owner a token representing their contribution based on the type of token contributed
         bytes memory mintCalldata = abi.encodeWithSelector(Dagon.mint.selector, from, uint96(amount * exchangeRate));
 
-        if (!GnosisSafe(safe).execTransactionFromModule(address(DAGON_SINGLETON), 0, mintCalldata, Enum.Operation.Call))
-        {
+        if (
+            !GnosisSafe(to).execTransactionFromModule(
+                address(DAGON_SINGLETON), 0, mintCalldata, GnosisSafe.Operation.Call
+            )
+        ) {
             revert ContributionFailed();
         }
     }
@@ -172,6 +226,12 @@ contract DagonTokenModule {
 
 /// @notice Minimal interface for the module to interact with the Safe contract
 interface GnosisSafe {
+    /// @dev Type of call the Safe will make
+    enum Operation {
+        Call,
+        DelegateCall
+    }
+
     /// @dev Allows a Module to execute a Safe transaction without any further confirmations.
     /// @param to Destination address of module transaction.
     /// @param value Ether value of module transaction.
@@ -181,7 +241,7 @@ interface GnosisSafe {
         address to,
         uint256 value,
         bytes calldata data,
-        Enum.Operation operation
+        GnosisSafe.Operation operation
     )
         external
         returns (bool success);
